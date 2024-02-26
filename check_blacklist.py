@@ -1,22 +1,17 @@
 import asyncio
 import pydnsbl
+from pydnsbl.providers import BASE_PROVIDERS, Provider
 import logging
 from netaddr import IPNetwork
 from datetime import datetime
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 import os
+import requests
 
-# SMTP email settings
-sender_email = "your-email@example.com"
-receiver_email = "receiver-email@example.com"
-smtp_server = "smtp.example.com"
-smtp_port = 587  # typically 587, 465, or 25
-smtp_username = "smtp-username"
-smtp_password = "smtp-password"
-
+# IP addresses to check
 ip_list = ['192.0.2.0/24', '203.0.113.0/24']
+
+# Discord Webhook settings
+discord_webhook_url = "DISCORD-WEBHHOK"
 
 # Ensure the logs directory exists
 if not os.path.exists('logs'):
@@ -27,20 +22,19 @@ logging.basicConfig(filename=os.path.join('logs', f'blacklist_check_{datetime.no
                     level=logging.INFO, 
                     format='%(asctime)s %(message)s')
 
-def send_email_notification(blacklisted_ips):
-    msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = receiver_email
-    msg['Subject'] = 'Blacklisted IP Alert'
-    body = '\n'.join([f"IP {ip} is blacklisted on: {', '.join(detected_by)}" for ip, detected_by in blacklisted_ips])
-    msg.attach(MIMEText(body, 'plain'))
+def read_dnsbls_from_file(file_path='dnsbls.txt'):
+    with open(file_path, 'r') as file:
+        dnsbls = [line.strip() for line in file.readlines() if line.strip()]
+    return dnsbls
 
-    server = smtplib.SMTP(smtp_server, smtp_port)
-    server.starttls()  # secure the connection
-    server.login(smtp_username, smtp_password)  # login with mail_id and password
-    text = msg.as_string()
-    server.sendmail(sender_email, receiver_email, text)
-    server.quit()
+def create_custom_providers(dnsbl_domains):
+    return [Provider(domain) for domain in dnsbl_domains]
+
+def notify_discord(blacklisted_ips):
+    content = '\n'.join([f"IP {ip} is blacklisted on: {', '.join(detected_by)}" for ip, detected_by in blacklisted_ips])
+    data = {"content": f"Blacklisted IP Alert:\n{content}"}
+    response = requests.post(discord_webhook_url, json=data)
+    response.raise_for_status()  # Raise an exception for HTTP errors
 
 async def check_single_ip(ip_checker, single_ip, blacklisted_ips):
     result = await ip_checker.check_async(str(single_ip))
@@ -54,8 +48,9 @@ async def check_single_ip(ip_checker, single_ip, blacklisted_ips):
         print(message)
         logging.info(message)
 
-async def check_ip_blacklist(ip_list):
-    ip_checker = pydnsbl.DNSBLIpChecker()
+async def check_ip_blacklist(ip_list, custom_providers):
+    providers = BASE_PROVIDERS + custom_providers
+    ip_checker = pydnsbl.DNSBLIpChecker(providers=providers)
     blacklisted_ips = []
 
     tasks = []
@@ -64,9 +59,13 @@ async def check_ip_blacklist(ip_list):
             tasks.append(check_single_ip(ip_checker, single_ip, blacklisted_ips))
     await asyncio.gather(*tasks)
 
-    # If we found any blacklisted IPs, send an email
+    # If we found any blacklisted IPs, notify via Discord
     if blacklisted_ips:
-        send_email_notification(blacklisted_ips)
+        notify_discord(blacklisted_ips)
+
+# Read the list of DNSBL domains from file and create custom providers
+dnsbl_domains = read_dnsbls_from_file()
+custom_providers = create_custom_providers(dnsbl_domains)
 
 # Run the asynchronous function
-asyncio.run(check_ip_blacklist(ip_list))
+asyncio.run(check_ip_blacklist(ip_list, custom_providers))
