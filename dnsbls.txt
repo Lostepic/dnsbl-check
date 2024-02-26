@@ -1,0 +1,4 @@
+all.s5h.net
+b.barracudacentral.org
+bl.spamcop.net
+blacklist.woody.ch
