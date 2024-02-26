@@ -15,7 +15,7 @@ Before running the script, ensure you have the following Python packages install
 You can install these packages using pip:
 
 ```bash
-pip install asyncio pydnsbl netaddr
+pip install asyncio pydnsbl netaddr requests
 ```
 
 ## Configuration
